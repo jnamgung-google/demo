@@ -1,5 +1,13 @@
 connection: "default_bigquery_connection"
 
+include: "/*.lkml"
+
+
+view: dummy_view {}
+explore: dashboard-summarization {
+  view_name: dummy_view
+}
+
 # include: "/views/*.view.lkml"                # include all views in the views/ folder in this project
 # include: "/**/*.view.lkml"                 # include all views in this project
 # include: "my_dashboard.dashboard.lookml"   # include a LookML dashboard called my_dashboard
