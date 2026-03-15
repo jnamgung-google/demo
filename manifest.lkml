@@ -5,6 +5,8 @@ application: dashboard-summarization {
 
   url: "https://localhost:3000/dashboard_summarization.js"
 
+
+
   entitlements: {
     use_embeds: yes
     use_form_submit: yes
