@@ -1,0 +1,104 @@
+%%bigquery
+
+CREATE OR REPLACE TABLE `eco-shift-478607-e5.bq1.calendar_dim` AS
+WITH base_dates AS (
+  # 1. Generate the raw array of dates
+  SELECT date
+  FROM UNNEST(GENERATE_DATE_ARRAY('2020-01-01', '2030-12-31', INTERVAL 1 DAY)) AS date
+),
+year_setup AS (
+  SELECT
+    date,
+    EXTRACT(YEAR FROM date) AS calendar_year,
+    EXTRACT(MONTH FROM date) AS calendar_month,
+    EXTRACT(QUARTER FROM date) AS calendar_quarter,
+
+    # 2. Standard Fiscal Year (Starts April 1st)
+    CASE
+      WHEN EXTRACT(MONTH FROM date) >= 4 THEN EXTRACT(YEAR FROM date)
+      ELSE EXTRACT(YEAR FROM date) - 1
+    END AS fiscal_year,
+
+    # 3. Find the First Sunday of the current calendar year
+    # DATE_TRUNC with 'WEEK' snaps to Sunday. Adding 6 days to Jan 1st ensures we hit the first Sunday.
+    DATE_TRUNC(DATE_ADD(DATE(EXTRACT(YEAR FROM date), 1, 1), INTERVAL 6 DAY), WEEK) AS current_year_first_sunday
+  FROM base_dates
+),
+
+# 4. Calculate the 4-4-5 Year
+retail_setup AS (
+  SELECT
+    *,
+    # If the date is BEFORE the first Sunday, it belongs to last year's 4-4-5 calendar.
+    CASE
+      WHEN date < current_year_first_sunday THEN calendar_year - 1
+      ELSE calendar_year
+    END AS year_445
+  FROM year_setup
+),
+
+# 5. Calculate the 4-4-5 Week
+retail_start AS (
+  SELECT
+    *,
+    # Now find the First Sunday of whichever 4-4-5 Year the date actually belongs to
+    DATE_TRUNC(DATE_ADD(DATE(year_445, 1, 1), INTERVAL 6 DAY), WEEK) AS start_date_445
+  FROM retail_setup
+),
+
+week_calculations AS (
+  SELECT
+    date,
+    calendar_year,
+    calendar_quarter,
+    calendar_month,
+    fiscal_year,
+
+    # Fiscal Quarter (Standard April-start)
+    CASE
+      WHEN calendar_month IN (4,5,6) THEN 1
+      WHEN calendar_month IN (7,8,9) THEN 2
+      WHEN calendar_month IN (10,11,12) THEN 3
+      WHEN calendar_month IN (1,2,3) THEN 4
+    END AS fiscal_quarter,
+
+    year_445,
+    # 6. Calculate 4-4-5 Week Number based on days since the start_date_445
+    CAST(FLOOR(DATE_DIFF(date, start_date_445, DAY) / 7) AS INT64) + 1 AS week_445
+  FROM retail_start
+)
+SELECT
+  date,
+  calendar_year,
+  calendar_month,
+
+  # Fiscal Columns
+  fiscal_year,
+  fiscal_quarter,
+
+  # 4-4-5 Columns
+  year_445,
+   CASE
+    WHEN week_445 BETWEEN 1 AND 13 THEN 1
+    WHEN week_445 BETWEEN 14 AND 26 THEN 2
+    WHEN week_445 BETWEEN 27 AND 39 THEN 3
+    ELSE 4 -- 40주부터 마지막(52 또는 53주)까지 Q4
+  END AS quarter_445,
+  CASE
+    WHEN week_445 BETWEEN 1 AND 4 THEN 1    -- 4 weeks
+    WHEN week_445 BETWEEN 5 AND 8 THEN 2    -- 4 weeks
+    WHEN week_445 BETWEEN 9 AND 13 THEN 3   -- 5 weeks
+    WHEN week_445 BETWEEN 14 AND 17 THEN 4  -- 4 weeks
+    WHEN week_445 BETWEEN 18 AND 21 THEN 5  -- 4 weeks
+    WHEN week_445 BETWEEN 22 AND 26 THEN 6  -- 5 weeks
+    WHEN week_445 BETWEEN 27 AND 30 THEN 7  -- 4 weeks
+    WHEN week_445 BETWEEN 31 AND 34 THEN 8  -- 4 weeks
+    WHEN week_445 BETWEEN 35 AND 39 THEN 9  -- 5 weeks
+    WHEN week_445 BETWEEN 40 AND 43 THEN 10 -- 4 weeks
+    WHEN week_445 BETWEEN 44 AND 47 THEN 11 -- 4 weeks
+    WHEN week_445 >= 48 THEN 12             -- 5 weeks (catches 52 or 53 weeks)
+  END AS month_445,
+  week_445
+
+FROM week_calculations
+ORDER BY date;
